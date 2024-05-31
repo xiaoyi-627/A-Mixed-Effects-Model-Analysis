@@ -1,0 +1,785 @@
+---
+title: Data Analysis
+author: Xiaoyi Wang
+date: today
+format:
+  html: 
+    self-contained: true
+    df-print: tibble
+editor_options: 
+  chunk_output_type: console
+execute: 
+  warning: false
+  message: false
+  echo: false
+---
+
+# Load packages
+
+```{r}
+pacman::p_load(tidyverse, readxl, here, skimr, nlme, dplyr, viridis, patchwork, gt)
+```
+
+# Load data
+
+```{r}
+full_table <- readRDS(here::here("analysis_df.Rds"))
+```
+
+# Set up a colorblind-friendly color group
+
+```{r}
+custom_colors <- c("#0072B2", "#E69F00", "#009E73", "#CC79A7")
+```
+
+# Perform initial operations on data
+
+```{r}
+# Check out the data
+head(full_table)
+str(full_table)
+
+# Change gender names
+full_table$gender <- gsub("0", "Female", full_table$gender)
+full_table$gender <- gsub("1", "Male", full_table$gender)
+# change variable names
+full_table <- full_table %>% rename(painstatus = group)
+# change painstatus names
+full_table$painstatus <-
+  gsub("Healthy", "Non-Pain", full_table$painstatus)
+# change timepoint names
+full_table$timepoint <- gsub("base", "Baseline", full_table$timepoint)
+full_table$timepoint <- gsub("6week", "6-Week", full_table$timepoint)
+full_table$timepoint <- gsub("6month", "6-Month", full_table$timepoint)
+# change timepoint levels
+full_table$timepoint <- factor(full_table$timepoint, levels = c("Baseline", "6-Week", "6-Month"))
+
+# Change variable forms
+full_table$subject_code <-
+  as.factor(as.character(full_table$subject_code))
+full_table$hemisphere <-
+  as.factor(as.character(full_table$hemisphere))
+full_table$region <- as.factor(as.character(full_table$region))
+
+# Establish a table showing the relationships between brain regions and parts of the brain
+brain_region_part = data.frame(
+  region = c(
+    "medialorbitofrontal",
+    "lateralorbitofrontal",
+    "parsopercularis",
+    "parstriangularis",
+    "rostralmiddlefrontal",
+    "superiorfrontal",
+    "insula",
+    "caudalanteriorcingulate",
+    "isthmuscingulate",
+    "posteriorcingulate",
+    "rostralanteriorcingulate",
+    "parahippocampal",
+    "superiortemporal",
+    "cuneus",
+    "precentral",
+    "postcentral",
+    "thalamus"
+  ),
+  brainpart_fullname = c(
+    "Frontal lobe (orbitofrontal cortex)",
+    "Frontal lobe (orbitofrontal cortex)",
+    "Frontal lobe (Broca's area)",
+    "Frontal lobe (Broca's area)",
+    "Frontal lobe (dorsolateral prefrontal cortex)",
+    "Frontal lobe (dorsolateral prefrontal cortex)",
+    "Insula",
+    "Cingulate gyrus",
+    "Cingulate gyrus",
+    "Cingulate gyrus",
+    "Cingulate gyrus",
+    "Temporal lobe (parahippocampal)",
+    "Temporal lobe (superior temporal)",
+    "Occipital lobe",
+    "Central sulcus",
+    "Central sulcus",
+    "Thalamus"
+  )
+)
+
+# Establish a table showing the abbreviations of parts of the brain
+brain_partfull_part = data.frame(
+  brainpart_fullname = c(
+    "Cingulate gyrus",
+    "Occipital lobe",
+    "Insula",
+    "Frontal lobe (orbitofrontal cortex)",
+    "Temporal lobe (parahippocampal)",
+    "Frontal lobe (Broca's area)",
+    "Central sulcus",
+    "Frontal lobe (dorsolateral prefrontal cortex)",
+    "Temporal lobe (superior temporal)"
+  ),
+  brainpart = c(
+    "CG",
+    "OL",
+    "I",
+    "FL (OC)",
+    "TL (P)",
+    "FL (BA)",
+    "CS",
+    "FL (DPC)",
+    "TL (ST)"
+  )
+)
+
+# Add a variable representing parts of the brain
+full_table <-
+  left_join(full_table, brain_region_part, by = "region")
+
+# Add a variable representing abbreviations of parts of the brain
+full_table <-
+  left_join(full_table, brain_partfull_part, by = "brainpart_fullname")
+
+# Add a variable representing age groups
+full_table <- full_table %>%
+  mutate(
+    agegroup = case_when(
+      age >= 18 & age <= 25 ~ "Less than 26",
+      age > 25 & age <= 40 ~ "26 to 40",
+      age > 40 & age <= 55 ~ "More than 40"
+    )
+  )
+```
+
+# Create a new table where both thickness and volume is listed in each row
+
+```{r}
+# Remove rows that make the number of thickness values and volume values unequal
+filtered <- full_table %>%
+  group_by(timepoint, subject_code, region, hemisphere) %>%
+  summarise(count = n())
+to_remove <- filtered %>%
+  group_by(timepoint, subject_code, region, hemisphere) %>%
+  filter(all(count < 2))
+final_filtered <- full_table %>%
+  anti_join(to_remove,
+            by = c("timepoint", "subject_code", "region", "hemisphere"))
+new_table <- final_filtered %>%
+  group_by(timepoint, subject_code, region, hemisphere) %>%
+  mutate(
+    value.thickness = ifelse(measure == "Thickness", value, NA),
+    value.volume = ifelse(measure == "Volume", value, NA)
+  )
+
+# Each row shows the values of both brain thickness and volume
+merged_table <- new_table %>%
+  group_by(timepoint, subject_code, region, hemisphere) %>%
+  summarise(
+    painstatus = first(painstatus),
+    brainpart = first(brainpart),
+    brainpart_fullname = first(brainpart_fullname),
+    gender = first(gender),
+    agegroup = first(agegroup),
+    value.thickness = max(value.thickness, na.rm = TRUE),
+    value.volume = max(value.volume, na.rm = TRUE),
+  ) 
+```
+
+# Create a dataset containing the differences in thickness and volume for different parts of the brain
+
+```{r}
+table_parts <- merged_table %>%
+  filter(timepoint == "Baseline" | timepoint == "6-Month")
+subject_code_counts <- table_parts %>%
+  group_by(brainpart, subject_code, hemisphere, region) %>%
+  summarise(count = n())
+subject_codes_to_keep <- subject_code_counts %>%
+  filter(count > 1) %>%
+  pull(subject_code)
+table_parts <- table_parts %>%
+  filter(subject_code %in% subject_codes_to_keep) %>%
+  group_by(brainpart, subject_code, hemisphere, region) %>%
+  mutate(
+    diff.thickness = value.thickness[timepoint == "6-Month"] - value.thickness[timepoint == "Baseline"],
+    diff.volume = value.volume[timepoint == "6-Month"] - value.volume[timepoint == "Baseline"],
+    agegroup = agegroup[timepoint == "Baseline"],
+    painstatus = painstatus[timepoint == "Baseline"],
+    base.thickness = value.thickness[timepoint == "Baseline"],
+    base.volume = value.volume[timepoint == "Baseline"],
+    gender = gender[timepoint == "Baseline"],
+    brainpart = brainpart[timepoint == "Baseline"],
+    brainpart_fullname = brainpart_fullname[timepoint == "Baseline"]
+  ) %>%
+  filter(timepoint == "6-Month")
+
+table_parts[, !names(table_parts) %in% c("timepoint",
+                                         "region",
+                                         "hemisphere",
+                                         "value.thickness",
+                                         "value.volume")] 
+```
+
+# Create a new table table_norm, normalizing the thickness and volume from table table_parts
+
+```{r}
+table_norm <- table_parts
+table_norm$diff.thickness <-
+  (table_norm$diff.thickness - min(table_norm$diff.thickness)) / (max(table_norm$diff.thickness) - min(table_norm$diff.thickness))
+table_norm$diff.volume <-
+  (table_norm$diff.volume - min(table_norm$diff.volume)) / (max(table_norm$diff.volume) - min(table_norm$diff.volume))
+```
+
+# Mean values of brain thickness and brain volume for each part of the brain at baseline and 6 months for the pain and non-pain groups
+
+```{r}
+table_parts %>%
+  group_by(painstatus) %>%
+  summarize(
+    "Thickness" = mean(base.thickness),
+    "Volume" = mean(base.volume)
+  ) %>%
+  gt() %>%
+  fmt_number(decimals = 2)
+```
+
+# Count the number of participants in each pain status
+
+```{r}
+table_parts %>%
+  group_by(painstatus) %>%
+  summarise(n_count = n_distinct(subject_code)) %>%
+  gt()
+```
+
+# Import the processed data into the file
+
+```{r}
+write.xlsx(merged_table, file = "merged_table.xlsx")
+write.xlsx(table_parts, file = "table_parts.xlsx")
+```
+
+# Observe age gruops
+
+```{r ageplot, fig.cap="The age distribution of the participants across pain status. The data exhibits a gender disparity among participants under 26 and participants with pain over 40, with notably fewer female participants than male participants."}
+plot_age <- table_parts %>%
+  arrange(match(agegroup, c("Less than 26", "26 to 40", "More than 40"))) %>%
+  group_by(subject_code) %>%
+  filter(row_number() == 1)
+
+ageplot <- ggplot(plot_age, aes(x = agegroup, fill = gender)) +
+  facet_grid(cols = vars(painstatus)) +
+  scale_x_discrete(limits = c("Less than 26", "26 to 40", "More than 40")) +
+  geom_bar(stat = "count", alpha = 0.6) +
+  labs(x = "Age Group", y = "Count", fill = "Gender") +
+  theme_classic() +
+  scale_fill_manual(values = custom_colors)
+
+ageplot
+```
+
+# Observe the relationships between brain thickness and brain volume
+
+```{r gender_thickness_v_volume, fig.cap="The relationships between brain thickness and brain volume across three time points and two genders. Due to the absence of brain data for the pain group at week six, there are no blue dots in the middle column. From the figure, certain dots are clustered within each combination of time point and gender."}
+gender_thickness_v_volume <-
+  ggplot(merged_table, aes(x = value.thickness, y = value.volume)) +
+  geom_point(aes(color = painstatus), size = 1.5) +
+  facet_grid(gender ~ timepoint, scales = "free") +
+  labs(x = "Thickness", y = "Volume", color = "Pain Status") +
+  theme_classic() +
+  scale_color_manual(values = custom_colors)
+
+gender_thickness_v_volume
+```
+```{r region_thickness_v_vol1234, fig.cap="The relationships between brain thickness and brain volume across sixteen brain regions and three time points. Due to the absence of brain data for the pain group at week six, there are no blue dots in the middle column. From the figure, the relationships between brain thickness and brain volume vary across different brain regions, and some similarities exist across different regions."}
+region_thickness_v_vol1 <-
+  ggplot(filter(
+    merged_table,
+    region %in% c(
+      "caudalanteriorcingulate",
+      "cuneus",
+      "insula",
+      "isthmuscingulate"
+    )
+  ),
+  aes(x = value.thickness, y = value.volume)) +
+  geom_point(aes(color = painstatus)) +
+  facet_grid(timepoint ~ region, scales = "free") +
+  labs(x = "Thickness", y = "Volume", color = "Pain Status") +
+  geom_smooth() +
+  theme_classic() +
+  scale_color_manual(values = custom_colors) +
+  theme(
+    axis.text.x = element_text(angle = 30, hjust = 1)
+  )
+
+region_thickness_v_vol2 <-
+  ggplot(filter(
+    merged_table,
+    region %in% c(
+      "lateralorbitofrontal",
+      "medialorbitofrontal",
+      "parahippocampal",
+      "parsopercularis"
+    )
+  ),
+  aes(x = value.thickness, y = value.volume)) +
+  geom_point(aes(color = painstatus)) +
+  facet_grid(timepoint ~ region, scales = "free") +
+  labs(x = "Thickness", y = "Volume", color = "Pain Status") +
+  geom_smooth() +
+  theme_classic() +
+  scale_color_manual(values = custom_colors) +
+  theme(
+    axis.text.x = element_text(angle = 30, hjust = 1)
+  )
+
+region_thickness_v_vol3 <-
+  ggplot(filter(
+    merged_table,
+    region %in% c(
+      "parstriangularis",
+      "postcentral",
+      "posteriorcingulate",
+      "precentral"
+    )
+  ),
+  aes(x = value.thickness, y = value.volume)) +
+  geom_point(aes(color = painstatus)) +
+  facet_grid(timepoint ~ region, scales = "free") +
+  labs(x = "Thickness", y = "Volume", color = "Pain Status") +
+  geom_smooth() +
+  theme_classic() +
+  scale_color_manual(values = custom_colors) +
+  theme(
+    axis.text.x = element_text(angle = 30, hjust = 1)
+  )
+
+region_thickness_v_vol4 <-
+  ggplot(filter(
+    merged_table,
+    region %in% c(
+      "rostralanteriorcingulate",
+      "rostralmiddlefrontal",
+      "superiorfrontal",
+      "superiortemporal"
+    )
+  ),
+  aes(x = value.thickness, y = value.volume)) +
+  geom_point(aes(color = painstatus)) +
+  facet_grid(timepoint ~ region, scales = "free") +
+  labs(x = "Thickness", y = "Volume", color = "Pain Status") +
+  geom_smooth() +
+  theme_classic() +
+  scale_color_manual(values = custom_colors) +
+  theme(
+    axis.text.x = element_text(angle = 30, hjust = 1)
+  )
+
+region_thickness_v_vol1234 <-
+  region_thickness_v_vol1 + region_thickness_v_vol2 + region_thickness_v_vol3 +
+  region_thickness_v_vol4 +
+  plot_annotation() +
+  plot_layout(ncol = 1, guides = "collect") &
+  theme(legend.position = "bottom")
+
+region_thickness_v_vol1234
+```
+```{r part_thickness_v_vol, fig.cap="The relationships between brain thickness and brain volume across nine parts of the brain and three time points. Due to the absence of brain data for the pain group at week six, there are no blue dots in the middle column. From the figure, there are strong linear relationships between brain thickness and brain volume across most parts of the brain."}
+part_thickness_v_vol <-
+  ggplot(merged_table, aes(x = value.thickness, y = value.volume)) +
+  geom_point(aes(color = painstatus), size = 1.5) +
+  facet_grid(timepoint ~ brainpart, scales = "free") +
+  labs(x = "Thickness", y = "Volume", color = "Pain Status") +
+  geom_smooth() +
+  theme_classic() +
+  scale_color_manual(values = custom_colors) +
+  theme(
+    legend.position = "bottom",
+    axis.text.x = element_text(angle = 45, hjust = 1)
+  )
+
+part_thickness_v_vol
+```
+
+# Observe changes in brain structure
+
+```{r parts_initialthickness_v_6mthsthickness, fig.cap="The relationships between baseline measurements and 6-month measurements for brain thickness across nine parts of the brain. The relationships between baseline measurements and 6-month measurements for brain thickness and brain volume across nine parts of the brain. The black dashed lines, with an intercept of 0 and a slope of 1, indicate where the x and y coordinates are equal. From the figure, most dots follow the black dashed lines, which means that there are no significant differences between the baseline and 6-month measurements for both brain thickness and brain volume."}
+parts_initialthickness_v_6mthsthickness <-
+  ggplot(
+    table_parts,
+    aes(
+      x = base.thickness,
+      y = base.thickness + diff.thickness,
+      color = painstatus,
+      group = painstatus
+    )
+  ) +
+  geom_abline(
+    intercept = 0,
+    slope = 1,
+    color = "black",
+    linetype = "dashed",
+    size=1
+  ) +
+  geom_point(aes(color = painstatus), size = 1.5) +
+  labs(x = "Initial Thickness", y = "6-Month Thickness", color = "Pain Status") +
+  geom_smooth(method = "lm") +
+  facet_wrap( ~ brainpart) +
+  theme_classic() +
+  scale_color_manual(values = custom_colors) +
+  theme(
+    legend.position = "bottom"
+  )
+
+parts_initialthickness_v_6mthsthickness
+```
+```{r parts_initialvolume_v_6mthsvolume, fig.cap="The relationships between baseline measurements and 6-month measurements for brain volume across nine parts of the brain. The relationships between baseline measurements and 6-month measurements for brain thickness and brain volume across nine parts of the brain. The black dashed lines, with an intercept of 0 and a slope of 1, indicate where the x and y coordinates are equal. From the figure, most dots follow the black dashed lines, which means that there are no significant differences between the baseline and 6-month measurements for both brain thickness and brain volume."}
+parts_initialvolume_v_6mthsvolume <-
+  ggplot(
+    table_parts,
+    aes(
+      x = base.volume,
+      y = base.volume + diff.volume,
+      color = painstatus,
+      group = painstatus
+    )
+  ) +
+  geom_abline(
+    intercept = 0,
+    slope = 1,
+    color = "black",
+    linetype = "dashed"
+  ) +
+  geom_point(aes(color = painstatus), size = 1.5) +
+  labs(x = "Initial Volume", y = "6-Month Volume", color = "Pain Status") +
+  geom_smooth(method = "lm") +
+  facet_wrap( ~ brainpart) +
+  theme_classic() +
+  scale_color_manual(values = custom_colors) +
+  theme(
+    legend.position = "bottom"
+  )
+
+parts_initialvolume_v_6mthsvolume
+```
+```{r change_thickness, fig.cap="Line graphs showing the changes in brain thickness from baseline to 6-month measurements. Line graphs showing the changes in brain thickness and brain volume from baseline to 6-month measurements. The first 300 data are taken for ease of observation. From the figures, it can be observed that there are more intersections among the lines representing thickness compared to those representing volume."}
+# Take the first 300 data points for ease of observation
+nrow = nrow(table_parts)
+vector_0 <- rep(0, nrow)
+vector_1 <- rep(1, nrow)
+data_thickness <- data.frame(
+  x_start = vector_0[1:300],
+  x_end = vector_1[1:300],
+  y_start = table_parts$base.thickness[1:300],
+  y_end = table_parts$base.thickness[1:300] + table_parts$diff.thickness[1:300],
+  painstatus = table_parts$painstatus[1:300],
+  brainpart = table_parts$brainpart[1:300],
+  gender = table_parts$gender[1:300],
+  hemis = table_parts$hemisphere[1:300]
+)
+
+change_thickness <-
+  ggplot(data_thickness,
+         aes(
+           x = x_start,
+           y = y_start,
+           color = painstatus,
+           group = painstatus
+         )) +
+  facet_wrap( ~ brainpart, scales = "free") +
+  geom_point() +
+  geom_point(aes(x = x_end, y = y_end)) +
+  geom_segment(aes(
+    x = x_start,
+    xend = x_end,
+    y = y_start,
+    yend = y_end
+  )) +
+  labs(x = "Time Point", y = "Thickness", color = "Pain Status") +
+  scale_x_continuous(breaks = c(0, 1),
+                     labels = c("Baseline", "6-Month")) +
+  theme_classic() +
+  scale_color_manual(values = custom_colors) +
+  theme(
+    legend.position = "bottom",
+    axis.text.x = element_text(angle = 30, hjust = 1)
+  )
+
+change_thickness
+```
+```{r change_volume, fig.cap="Line graphs showing the changes in brain volume from baseline to 6-month measurements. Line graphs showing the changes in brain thickness and brain volume from baseline to 6-month measurements. The first 300 data are taken for ease of observation. From the figures, it can be observed that there are more intersections among the lines representing thickness compared to those representing volume."}
+# Take the first 300 data points for ease of observation
+data_volume <- data.frame(
+  x_start = vector_0[1:300],
+  x_end = vector_1[1:300],
+  y_start = table_parts$base.volume[1:300],
+  y_end = table_parts$base.volume[1:300] + table_parts$diff.volume[1:300],
+  painstatus = table_parts$painstatus[1:300],
+  brainpart = table_parts$brainpart[1:300],
+  gender = table_parts$gender[1:300],
+  hemis = table_parts$hemisphere[1:300]
+)
+
+change_volume <-
+  ggplot(data_volume,
+         aes(
+           x = x_start,
+           y = y_start,
+           color = painstatus,
+           group = painstatus
+         )) +
+  facet_wrap( ~ brainpart, scales = "free") +
+  geom_point() +
+  geom_point(aes(x = x_end, y = y_end)) +
+  geom_segment(aes(
+    x = x_start,
+    xend = x_end,
+    y = y_start,
+    yend = y_end
+  )) +
+  labs(x = "Time Point", y = "Volume", color = "Pain Status") +
+  scale_x_continuous(breaks = c(0, 1),
+                     labels = c("Baseline", "6-Month")) +
+  theme_classic() +
+  scale_color_manual(values = custom_colors) +
+  theme(
+    legend.position = "bottom",
+    axis.text.x = element_text(angle = 30, hjust = 1)
+  )
+
+change_volume
+```
+```{r parts_diffthickness_vs_diffvolume, fig.cap="The relationships between differences in brain thickness and differences in brain volume from baseline to 6-month measurements across nine parts of the brain. The differences in thickness and volume of the brain are normalized to better see the relationships between the two. From the figure, there are strong linear relationships between differences in brain thickness and differences in brain volume across some parts of the brain."}
+parts_diffthickness_vs_diffvolume <-
+  ggplot(
+    table_norm,
+    aes(
+      x = diff.thickness,
+      y = diff.volume,
+      color = painstatus,
+      group = painstatus
+    )
+  ) +
+  geom_point(aes(color = painstatus)) +
+  labs(x = "Thickness Differences", y = "Volume Differences", color = "Pain Status") +
+  geom_smooth(method = "lm") +
+  facet_wrap( ~ brainpart) +
+  theme_classic() +
+  scale_color_manual(values = custom_colors) +
+  theme(
+    legend.position = "bottom",
+    axis.text.x = element_text(angle = 30, hjust = 1)
+  )
+
+parts_diffthickness_vs_diffvolume
+```
+```{r density_diffthickness, fig.cap="Density plots of the differences in brain thickness between baseline and 6-month measurements. Density plots of the differences in brain thickness and brain volume between baseline and 6-month measurements. For some parts of the brain, there are observable non-overlapping areas under the density curves for the pain and non-pain groups. For example, parts of the brain with non-overlapping areas include Broca's area and the orbital frontal cortex in the frontal lobe, as well as the insula. Moreover, the differences in the area under the density curves for brain thickness differences are greater than those for brain volume differences."}
+density_diffthickness <-
+  ggplot(table_parts, aes(x = diff.thickness)) +
+  geom_density(aes(fill = painstatus), alpha = 0.6) +
+  facet_wrap( ~ brainpart, scales = "free") +
+  theme_classic() +
+  xlab("Thickness Differences") +
+  ylab("Density") +
+  labs(fill = "Pain Status") +
+  scale_fill_manual(values = custom_colors) +
+  theme(
+    legend.position = "bottom"
+  )
+
+density_diffthickness
+```
+```{r density_diffvolume, fig.cap="Density plots of the differences in brain volume between baseline and 6-month measurements. Density plots of the differences in brain thickness and brain volume between baseline and 6-month measurements. For some parts of the brain, there are observable non-overlapping areas under the density curves for the pain and non-pain groups. For example, parts of the brain with non-overlapping areas include Broca's area and the orbital frontal cortex in the frontal lobe, as well as the insula. Moreover, the differences in the area under the density curves for brain thickness differences are greater than those for brain volume differences."}
+density_diffvolume <-
+  ggplot(table_parts, aes(x = diff.volume)) +
+  geom_density(aes(fill = painstatus), alpha = 0.6) +
+  facet_wrap( ~ brainpart, scales = "free") +
+  theme_classic() +
+  xlab("Volume Differences") +
+  ylab("Density") +
+  labs(fill = "Pain Status") +
+  scale_fill_manual(values = custom_colors) +
+  theme(
+    legend.position = "bottom"
+  )
+
+density_diffvolume
+```
+
+# Explore relationships between variables and changes in brain structure
+
+```{r age_v_diffthickness, fig.cap="The relationship between age groups and values of brain thickness across pain status. The relationships between age groups and values of brain thickness and brain volume across pain status. The green dashed lines are horizontal lines with a vertical coordinate of 0, representing no change. From the figures, it can be observed that there are small differences between age groups in both the pain and non-pain groups, and in both the thickness and volume differences."}
+age_v_diffthickness <-
+  ggplot(table_parts,
+         aes(x = agegroup, y = diff.thickness, fill = painstatus)) +
+  geom_hline(
+    yintercept = 0,
+    color = "#009E73",
+    linetype = "dashed",
+    size = 1.5
+  ) +
+  geom_boxplot(alpha = 0.6) +
+  scale_x_discrete(limits = c("Less than 26", "26 to 40", "More than 40")) +
+  labs(x = "Age Group", y = "Thickness Difference", fill = "Pain Status") +
+  facet_wrap( ~ painstatus) +
+  ylim(-0.1, 0.1) +
+  theme_classic() +
+  scale_fill_manual(values = custom_colors) +
+  theme(
+    legend.position = "bottom",
+    axis.text.x = element_text(angle = 30, hjust = 1)
+  )
+
+age_v_diffthickness
+```
+```{r age_v_diffvolume, fig.cap="The relationship between age groups and values of brain volume across pain status. The relationships between age groups and values of brain thickness and brain volume across pain status. The green dashed lines are horizontal lines with a vertical coordinate of 0, representing no change. From the figures, it can be observed that there are small differences between age groups in both the pain and non-pain groups, and in both the thickness and volume differences."}
+age_v_diffvolume <-
+  ggplot(table_parts, aes(x = agegroup, y = diff.volume, fill = painstatus)) +
+  geom_hline(
+    yintercept = 0,
+    color = "#009E73",
+    linetype = "dashed",
+    size = 1.5
+  ) +
+  geom_boxplot(alpha = 0.6) +
+  scale_x_discrete(limits = c("Less than 26", "26 to 40", "More than 40")) +
+  labs(x = "Age Group", y = "Volume Differences", fill = "Pain Status") +
+  facet_wrap( ~ painstatus) +
+  ylim(-500, 500) +
+  theme_classic() +
+  scale_fill_manual(values = custom_colors) +
+  theme(
+    legend.position = "bottom",
+    axis.text.x = element_text(angle = 30, hjust = 1)
+  )
+
+age_v_diffvolume
+```
+```{r gender_v_diffthickness, fig.cap="The relationship between gender and brain thickness across pain status. The relationships between gender and brain thickness and brain volume across pain status. The green dashed lines are horizontal lines with a vertical coordinate of 0, representing no change. From the figures, it can be observed that there are small differences between genders in both the pain and non-pain groups and in both the thickness and volume differences. It is noteworthy that the differences between males and females in the pain group are smaller than in the non-pain group, both in terms of thickness and volume."}
+gender_v_diffthickness <-
+  ggplot(table_parts, aes(x = gender, y = diff.thickness, fill = painstatus)) +
+  geom_hline(
+    yintercept = 0,
+    color = "#009E73",
+    linetype = "dashed",
+    size = 1.5
+  ) +
+  geom_boxplot(alpha = 0.6) +
+  labs(x = "Gender", y = "Thickness Differences", fill = "Pain Status") +
+  facet_wrap( ~ painstatus) +
+  ylim(-0.1, 0.1) +
+  theme_classic() +
+  scale_fill_manual(values = custom_colors) +
+  theme(
+    legend.position = "bottom"
+  )
+
+gender_v_diffthickness
+```
+```{r gender_v_diffvolume, fig.cap="The relationship between gender and brain volume across pain status. The relationships between gender and brain thickness and brain volume across pain status. The green dashed lines are horizontal lines with a vertical coordinate of 0, representing no change. From the figures, it can be observed that there are small differences between genders in both the pain and non-pain groups and in both the thickness and volume differences. It is noteworthy that the differences between males and females in the pain group are smaller than in the non-pain group, both in terms of thickness and volume."}
+gender_v_diffvolume <-
+  ggplot(table_parts, aes(x = gender, y = diff.volume, fill = painstatus)) +
+  geom_hline(
+    yintercept = 0,
+    color = "#009E73",
+    linetype = "dashed",
+    size = 1.5
+  ) +
+  geom_boxplot(alpha = 0.6) +
+  labs(x = "Gender", y = "Volume Differences", fill = "Pain Status") +
+  facet_wrap( ~ painstatus) +
+  ylim(-500, 500) +
+  theme_classic() +
+  scale_fill_manual(values = custom_colors) +
+  theme(
+    legend.position = "bottom"
+  )
+
+gender_v_diffvolume
+```
+```{r parts_age_v_diffthickness, fig.cap="The relationships between age and the differences in brain thickness between baseline and 6-month measurements across nine parts of the brain. The relationships between age and the differences in brain thickness and brain volume between baseline and 6-month measurements across nine parts of the brain. The green dashed lines are horizontal lines with a vertical coordinate of 0, representing no change. From the figures, the differences in brain thickness and brain volume in various parts of the brain differed between the pain group and the non-pain group at different ages."}
+parts_age_v_diffthickness <-
+  ggplot(table_parts,
+         aes(x = agegroup, y = diff.thickness, fill = painstatus)) +
+  geom_hline(
+    yintercept = 0,
+    color = "#009E73",
+    linetype = "dashed",
+    size = 1
+  ) +
+  geom_boxplot(alpha = 0.6) +
+  scale_x_discrete(limits = c("Less than 26", "26 to 40", "More than 40")) +
+  labs(x = "Age Group", y = "Thickness Differences", fill = "Pain Status") +
+  facet_wrap( ~ brainpart) +
+  ylim(-0.1, 0.1) +
+  theme_classic() +
+  scale_fill_manual(values = custom_colors) +
+  theme(
+    legend.position = "bottom",
+    axis.text.x = element_text(angle = 30, hjust = 1)
+  )
+
+parts_age_v_diffthickness
+```
+```{r parts_age_v_diffvolume, fig.cap="The relationships between age and the differences in brain volume between baseline and 6-month measurements across nine parts of the brain. The relationships between age and the differences in brain thickness and brain volume between baseline and 6-month measurements across nine parts of the brain. The green dashed lines are horizontal lines with a vertical coordinate of 0, representing no change. From the figures, the differences in brain thickness and brain volume in various parts of the brain differed between the pain group and the non-pain group at different ages."}
+parts_age_v_diffvolume <-
+  ggplot(table_parts, aes(x = agegroup, y = diff.volume, fill = painstatus)) +
+  geom_hline(
+    yintercept = 0,
+    color = "#009E73",
+    linetype = "dashed",
+    size = 1
+  ) +
+  geom_boxplot(alpha = 0.6) +
+  scale_x_discrete(limits = c("Less than 26", "26 to 40", "More than 40")) +
+  labs(x = "Age Group", y = "Volume Differences", fill = "Pain Status") +
+  facet_wrap( ~ brainpart) +
+  ylim(-500, 500) +
+  theme_classic() +
+  scale_fill_manual(values = custom_colors) +
+  theme(
+    legend.position = "bottom",
+    axis.text.x = element_text(angle = 30, hjust = 1)
+  )
+
+parts_age_v_diffvolume
+```
+```{r parts_gender_v_diffthickness, fig.cap="The relationships between gender and the differences in brain thickness between baseline and 6-month measurements across nine parts of the brain. The relationships between gender and the differences in brain thickness and brain volume between baseline and 6-month measurements across nine parts of the brain. The green dashed lines are horizontal lines with a vertical coordinate of 0, representing no change. From the figures, the differences in brain thickness and brain volume in various parts of the brain differed between the pain group and the non-pain group of different genders."}
+parts_gender_v_diffthickness <-
+  ggplot(table_parts, aes(x = gender, y = diff.thickness, fill = painstatus)) +
+  geom_hline(
+    yintercept = 0,
+    color = "#009E73",
+    linetype = "dashed",
+    size = 1
+  ) +
+  geom_boxplot(alpha = 0.6) +
+  labs(x = "Gender", y = "Thickness Differences", fill = "Pain Status") +
+  facet_wrap( ~ brainpart) +
+  ylim(-0.1, 0.1) +
+  theme_classic() +
+  scale_fill_manual(values = custom_colors) +
+  theme(
+    legend.position = "bottom"
+  )
+
+parts_gender_v_diffthickness
+```
+```{r parts_gender_v_diffvolume, fig.cap="The relationships between gender and the differences in brain volume between baseline and 6-month measurements across nine parts of the brain. The relationships between gender and the differences in brain thickness and brain volume between baseline and 6-month measurements across nine parts of the brain. The green dashed lines are horizontal lines with a vertical coordinate of 0, representing no change. From the figures, the differences in brain thickness and brain volume in various parts of the brain differed between the pain group and the non-pain group of different genders."}
+parts_gender_v_diffvolume <-
+  ggplot(table_parts, aes(x = gender, y = diff.volume, fill = painstatus)) +
+  geom_hline(
+    yintercept = 0,
+    color = "#009E73",
+    linetype = "dashed",
+    size = 1
+  ) +
+  geom_boxplot(alpha = 0.6) +
+  labs(x = "Gender", y = "Volume Differences", fill = "Pain Status") +
+  facet_wrap( ~ brainpart) +
+  ylim(-500, 500) +
+  theme_classic() +
+  scale_fill_manual(values = custom_colors) +
+  theme(
+    legend.position = "bottom"
+  )
+
+parts_gender_v_diffvolume
+```

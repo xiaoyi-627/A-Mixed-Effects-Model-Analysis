@@ -1,0 +1,141 @@
+---
+title: Bayesian Mixed-effects Modeling
+author: Xiaoyi Wang
+date: today
+format: 
+  html: 
+    self-contained: true
+    df-print: tibble
+editor_options: 
+  chunk_output_type: console
+execute: 
+  warning: false
+  message: false
+  echo: false
+---
+
+# Load packages
+
+```{r}
+pacman::p_load(tidyverse, readxl, here, skimr, nlme, dplyr, viridis, patchwork, gt, ggplot2, brms, performance)
+```
+
+# Load data
+
+```{r}
+table_parts <- read_excel(here::here("table_parts.xlsx"))
+merged_table <- read_excel(here::here("merged_table.xlsx"))
+```
+
+# Observe data distribution
+
+```{r diffthickness_distribution, fig.cap="Histogram of the differences in brain thickness. The distribution appears to be approximately Gaussian, centered around zero, with most values clustered near the mean and a symmetric spread on either side."}
+diffthickness_distribution <-
+  ggplot(table_parts, aes(x = diff.thickness)) +
+  geom_histogram(colour = "black",
+                 fill = "#0072B2",
+                 alpha = 0.6) +
+  theme_classic() +
+  ylab("Count") +
+  xlab("Differences of Thickness") +
+  theme(text = element_text(size = 17), axis.text = element_text(size = 13))
+
+diffthickness_distribution
+```
+```{r diffvolume_distribution, fig.cap="Histogram of the differences in brain volume. The distribution appears to be approximately Gaussian, centered around zero, with most values clustered near the mean and a symmetric spread on either side."}
+diffvolume_distribution <-
+  ggplot(table_parts, aes(x = diff.volume)) +
+  geom_histogram(colour = "black",
+                 fill = "#0072B2",
+                 alpha = 0.6) +
+  theme_classic() +
+  ylab("Count") +
+  xlab("Differences of Volume") +
+  theme(text = element_text(size = 17), axis.text = element_text(size = 13))
+
+diffvolume_distribution
+```
+
+# The selected preferred models
+
+## Brain thickness differences
+
+```{r}
+m_t_bayes <-
+  brms::brm(
+    diff.thickness ~ painstatus + brainpart + gender + agegroup + painstatus:brainpart + painstatus:gender + painstatus:agegroup + brainpart:gender + brainpart:agegroup + gender:agegroup + painstatus:brainpart:gender + (1 | subject_code) ,
+    data = table_parts,
+    family = gaussian(),
+    chains = 3,
+    iter = 5000,
+    warmup = 1000,
+    thin = 3
+  )
+```
+```{r}
+performance::icc(m_t_bayes)
+```
+```{r}
+summary(m_t_bayes)
+```
+
+## Brain volume differences
+
+```{r}
+m_v_bayes <-
+  brms::brm(
+    diff.volume ~ painstatus + brainpart + gender + agegroup + painstatus:brainpart + painstatus:agegroup + brainpart:gender + (1 | subject_code),
+    data = table_parts,
+    family = gaussian(),
+    chains = 3,
+    iter = 5000,
+    warmup = 1000,
+    thin = 3
+  )
+```
+```{r}
+performance::icc(m_v_bayes)
+```
+```{r}
+summary(m_v_bayes)
+```
+
+# Summary of the posterior distribution
+
+```{r t_trace, fig.cap="Summary of the posterior distribution of the selected parameters obtained by the Bayesian model."}
+t_trace <- plot(m_t_bayes)
+
+t_trace
+```
+```{r v_trace, fig.cap="Summary of the posterior distribution of the selected parameters obtained by the Bayesian model."}
+v_trace <- plot(m_v_bayes)
+
+v_trace
+```
+
+# Diagnostic plots
+
+```{r t_full_linear_bayes, fig.cap="Residual plot of the Bayesian model. From both plots, except for the dots in the predicted value less than -0.1 section being slightly concentrated below the horizontal dashed line, most of the other dots are symmetrically distributed, tending to cluster towards the middle of the plot, around the lower single digits of the y-axis, and there are not any clear patterns."}
+t_full_linear_bayes <- plot(check_model(m_t_bayes))[[2]] +
+  theme_classic()
+
+t_full_linear_bayes
+```
+```{r t_full_normal_bayes, fig.cap="Q-Q plot of the Bayesian model. Both plots exhibit some heavy tails. Aside from these tails, most of the other dots closely follow the reference line."}
+t_full_normal_bayes <- plot(check_model(m_t_bayes))[[6]] +
+  theme_classic()
+
+t_full_normal_bayes
+```
+```{r v_full_linear_bayes, fig.cap="Residual plot of the Bayesian model. From both plots, apart from the dots with predicted values less than -0.1, which are slightly concentrated below the horizontal line, and an outlier in the top-right corner of the plot, most of the other dots are symmetrically distributed. They tend to cluster towards the middle of the plot, around the lower single digits of the y-axis, and there are not any clear patterns."}
+v_full_linear_bayes <- plot(check_model(m_v_bayes))[[2]] +
+  theme_classic()
+
+v_full_linear_bayes
+```
+```{r v_full_normal_bayes, fig.cap="Q-Q plot of the Bayesian model. Both plots exhibit some heavy tails. Aside from these tails, most of the other dots closely follow the reference line."}
+v_full_normal_bayes <- plot(check_model(m_v_bayes))[[6]] +
+  theme_classic()
+
+v_full_normal_bayes
+```

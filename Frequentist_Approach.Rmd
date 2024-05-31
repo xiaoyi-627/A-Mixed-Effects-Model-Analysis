@@ -1,0 +1,1162 @@
+---
+title: Frequentist Mixed-Effects Modeling
+author: Xiaoyi Wang
+date: today
+format: 
+  html: 
+    self-contained: true
+    df-print: tibble
+editor_options: 
+  chunk_output_type: console
+execute: 
+  warning: false
+  message: false
+  echo: false
+---
+
+# Load packages
+
+```{r}
+pacman::p_load(tidyverse, readxl, here, skimr, nlme, dplyr, viridis, patchwork, gt, lme4, lmerTest, merTools, performance)
+```
+
+# Load data
+
+```{r}
+table_parts <- read_excel(here::here("table_parts.xlsx"))
+merged_table <- read_excel(here::here("merged_table.xlsx"))
+```
+
+# Set up dataset
+
+```{r}
+table_F_less26 <-
+  table_parts %>% filter(agegroup == "Less than 26" &
+                           gender == "Female")
+table_F_26to40 <-
+  table_parts %>% filter(agegroup == "26 to 40" & gender == "Female")
+table_F_more40 <-
+  table_parts %>% filter(agegroup == "More than 40" &
+                           gender == "Female")
+table_M_less26 <-
+  table_parts %>% filter(agegroup == "Less than 26" &
+                           gender == "Male")
+table_M_26to40 <-
+  table_parts %>% filter(agegroup == "26 to 40" & gender == "Male")
+table_M_more40 <-
+  table_parts %>% filter(agegroup == "More than 40" &
+                           gender == "Male")
+```
+
+# Set up a colorblind-friendly color group
+
+```{r}
+custom_colors <- c("#0072B2", "#E69F00", "#009E73", "#CC79A7")
+```
+
+# Thickness
+
+## Initial model for differences in brain thickness
+
+```{r}
+m_t_freq <-
+  lmer(
+    diff.thickness ~ painstatus * brainpart * gender * agegroup + (1 | subject_code),
+    data = table_parts,
+    REML = FALSE
+  )
+```
+
+## Perform backward elimination of nonsignificant effects of linear mixed-effects model
+
+```{r}
+step(
+  m_t_freq,
+  ddf = "Satterthwaite",
+  alpha.random = 0.05,
+  alpha.fixed = 0.05,
+  reduce.fixed = TRUE,
+  reduce.random = TRUE
+)
+```
+
+## Adjusted ICC
+
+```{r}
+performance::icc(m_t_freq)
+```
+
+## Results from likelihood-ratio test
+
+```{r}
+anova(m_t_freq)
+```
+
+## First phase of the follow-up analysis
+
+```{r}
+mt_F_less26_lm <-
+  lm(diff.thickness ~ painstatus * brainpart, data = table_F_less26)
+anova(mt_F_less26_lm)
+# 'painstatus:brainpart' term is significant
+```
+```{r}
+mt_F_26to40 <-
+  lmer(
+    diff.thickness ~ painstatus * brainpart + (1 | subject_code),
+    data = table_F_26to40,
+    REML = FALSE
+  )
+performance::icc(mt_F_26to40)
+anova(mt_F_26to40)
+```
+```{r}
+mt_F_more40 <-
+  lmer(
+    diff.thickness ~ painstatus * brainpart + (1 | subject_code),
+    data = table_F_more40,
+    REML = FALSE
+  )
+performance::icc(mt_F_more40)
+anova(mt_F_more40)
+```
+```{r}
+mt_M_less26 <-
+  lmer(
+    diff.thickness ~ painstatus * brainpart + (1 | subject_code),
+    data = table_M_less26,
+    REML = FALSE
+  )
+performance::icc(mt_M_less26)
+anova(mt_M_less26)
+```
+```{r}
+mt_M_26to40 <-
+  lmer(
+    diff.thickness ~ painstatus * brainpart + (1 | subject_code),
+    data = table_M_26to40,
+    REML = FALSE
+  )
+performance::icc(mt_M_26to40)
+anova(mt_M_26to40)
+```
+```{r}
+mt_M_more40_lm <-
+  lm(diff.thickness ~ painstatus * brainpart, data = table_M_more40)
+anova(mt_M_more40_lm)
+# 'painstatus' and 'brainpart' terms are significant
+```
+```{r}
+pt <-
+  c(
+    0.471889,
+    0.675456,
+    0.007056,
+    0.19566,
+    0.15952,
+    0.09141,
+    0.8440,
+    0.8500,
+    0.7653,
+    0.7746,
+    0.2018,
+    0.1779,
+    0.54659,
+    0.67726,
+    0.08714,
+    1.211e-07,
+    1.997e-05,
+    0.4888
+  )
+p.adjust(pt, "fdr")
+# In 'mt_F_less26_lm' and 'mt_M_more40_lm', the terms are still significant
+```
+
+## Second phase of the follow-up analysis
+
+### Females less than 26
+
+```{r}
+mt_F_less26_part1_lm <-
+  lm(diff.thickness ~ painstatus, data = table_F_less26 %>% filter(brainpart == "CG"))
+anova(mt_F_less26_part1_lm)
+```
+```{r}
+mt_F_less26_part2_lm <-
+  lm(diff.thickness ~ painstatus, data = table_F_less26 %>% filter(brainpart == "OL"))
+anova(mt_F_less26_part2_lm)
+```
+```{r}
+mt_F_less26_part3_lm <-
+  lm(diff.thickness ~ painstatus, data = table_F_less26 %>% filter(brainpart == "I"))
+anova(mt_F_less26_part3_lm)
+```
+```{r}
+mt_F_less26_part4_lm <-
+  lm(diff.thickness ~ painstatus,
+     data = table_F_less26 %>% filter(brainpart == "FL (OC)"))
+anova(mt_F_less26_part4_lm)
+```
+```{r}
+mt_F_less26_part5_lm <-
+  lm(diff.thickness ~ painstatus,
+     data = table_F_less26 %>% filter(brainpart == "TL (P)"))
+anova(mt_F_less26_part5_lm)
+```
+```{r}
+mt_F_less26_part6_lm <-
+  lm(diff.thickness ~ painstatus,
+     data = table_F_less26 %>% filter(brainpart == "FL (BA)"))
+anova(mt_F_less26_part6_lm)
+```
+```{r}
+mt_F_less26_part7_lm <-
+  lm(diff.thickness ~ painstatus, data = table_F_less26 %>% filter(brainpart == "CS"))
+anova(mt_F_less26_part7_lm)
+# 'painstatus' term is Significant
+summary(mt_F_less26_part7_lm)
+confint(mt_F_less26_part7_lm)
+```
+```{r}
+mt_F_less26_part8_lm <-
+  lm(diff.thickness ~ painstatus,
+     data = table_F_less26 %>% filter(brainpart == "FL (DPC)"))
+anova(mt_F_less26_part8_lm)
+```
+```{r}
+mt_F_less26_part9_lm <-
+  lm(diff.thickness ~ painstatus,
+     data = table_F_less26 %>% filter(brainpart == "TL (ST)"))
+anova(mt_F_less26_part9_lm)
+```
+```{r}
+pt_F_less26 <-
+  c(0.1574,
+    0.1969,
+    0.1582,
+    0.4108,
+    0.2336,
+    0.1388,
+    0.01512,
+    0.184,
+    0.7258)
+p.adjust(pt_F_less26, "fdr")
+# No significant value
+```
+
+### Males more than 40
+
+```{r}
+mt_M_more40_part1 <-
+  lmer(
+    diff.thickness ~ painstatus + (1 | subject_code),
+    data = table_M_more40 %>% filter(brainpart == "CG"),
+    REML = FALSE
+  )
+performance::icc(mt_M_more40_part1)
+anova(mt_M_more40_part1)
+```
+```{r}
+mt_M_more40_part2 <-
+  lmer(
+    diff.thickness ~ painstatus + (1 | subject_code),
+    data = table_M_more40 %>% filter(brainpart == "OL"),
+    REML = FALSE
+  )
+performance::icc(mt_M_more40_part2)
+anova(mt_M_more40_part2)
+```
+```{r}
+mt_M_more40_part3 <-
+  lmer(
+    diff.thickness ~ painstatus + (1 | subject_code),
+    data = table_M_more40 %>% filter(brainpart == "I"),
+    REML = FALSE
+  )
+performance::icc(mt_M_more40_part3)
+anova(mt_M_more40_part3)
+```
+```{r}
+mt_M_more40_part4_lm <-
+  lm(diff.thickness ~ painstatus,
+     data = table_M_more40 %>% filter(brainpart == "FL (OC)"))
+anova(mt_M_more40_part4_lm)
+```
+```{r}
+mt_M_more40_part5_lm <-
+  lm(diff.thickness ~ painstatus,
+     data = table_M_more40 %>% filter(brainpart == "TL (P)"))
+anova(mt_M_more40_part5_lm)
+```
+```{r}
+mt_M_more40_part6 <-
+  lmer(
+    diff.thickness ~ painstatus + (1 | subject_code),
+    data = table_M_more40 %>% filter(brainpart == "FL (BA)"),
+    REML = FALSE
+  )
+performance::icc(mt_M_more40_part6)
+anova(mt_M_more40_part6)
+```
+```{r}
+mt_M_more40_part7 <-
+  lmer(
+    diff.thickness ~ painstatus + (1 | subject_code),
+    data = table_M_more40 %>% filter(brainpart == "CS"),
+    REML = FALSE
+  )
+performance::icc(mt_M_more40_part7)
+anova(mt_M_more40_part7)
+```
+```{r}
+mt_M_more40_part8 <-
+  lmer(
+    diff.thickness ~ painstatus + (1 | subject_code),
+    data = table_M_more40 %>% filter(brainpart == "FL (DPC)"),
+    REML = FALSE
+  )
+performance::icc(mt_M_more40_part8)
+anova(mt_M_more40_part8)
+```
+```{r}
+mt_M_more40_part9 <-
+  lmer(
+    diff.thickness ~ painstatus + (1 | subject_code),
+    data = table_M_more40 %>% filter(brainpart == "TL (ST)"),
+    REML = FALSE
+  )
+performance::icc(mt_M_more40_part9)
+anova(mt_M_more40_part9)
+# 'painstatus' term is significant
+summary(mt_M_more40_part9)
+confint(mt_M_more40_part9)
+```
+```{r}
+pt_M_more40 <-
+  c(0.1339,
+    0.2055,
+    0.451,
+    0.238,
+    0.436,
+    0.07899,
+    0.583,
+    0.1078,
+    0.01687)
+p.adjust(pt_M_more40, "fdr")
+# No significant value
+```
+
+# Volume
+
+## Initial model for differences in brain volume
+
+```{r}
+m_v_freq <-
+  lmer(
+    diff.volume ~ painstatus * brainpart * gender * agegroup + (1 | subject_code),
+    data = table_parts,
+    REML = FALSE
+  )
+```
+
+## Perform backward elimination of nonsignificant effects of linear mixed-effects model
+
+```{r}
+step(
+  m_v_freq,
+  ddf = "Satterthwaite",
+  alpha.random = 0.05,
+  alpha.fixed = 0.05,
+  reduce.fixed = TRUE,
+  reduce.random = TRUE
+)
+```
+
+## Adjusted ICC
+
+```{r}
+performance::icc(m_v_freq)
+```
+
+## Results from likelihood-ratio test
+
+```{r}
+anova(m_v_freq)
+```
+
+## First phase of the follow-up analysis
+
+```{r}
+mv_F_less26_lm <-
+  lm(diff.volume ~ painstatus * brainpart, data = table_F_less26)
+anova(mv_F_less26_lm)
+# 'painstatus' and 'painstatus:brainpart' terms are significant
+```
+```{r}
+mv_F_26to40_lm <-
+  lm(diff.volume ~ painstatus * brainpart, data = table_F_26to40)
+anova(mv_F_26to40_lm)
+# 'painstatus', 'brainpart' and 'painstatus:brainpart' terms are significant
+```
+```{r}
+mv_F_more40_lm <-
+  lm(diff.volume ~ painstatus * brainpart, data = table_F_more40)
+anova(mv_F_more40_lm)
+```
+```{r}
+mv_M_less26_lm <-
+  lm(diff.volume ~ painstatus * brainpart, data = table_M_less26)
+anova(mv_M_less26_lm)
+# 'brainpart' term is significant
+```
+```{r}
+mv_M_26to40 <-
+  lmer(
+    diff.volume ~ painstatus * brainpart + (1 | subject_code),
+    data = table_M_26to40,
+    REML = FALSE
+  )
+performance::icc(mv_M_26to40)
+anova(mv_M_26to40)
+# 'painstatus:brainpart' term is significant
+```
+```{r}
+mv_M_more40_lm <-
+  lm(diff.volume ~ painstatus * brainpart, data = table_M_more40)
+anova(mv_M_more40_lm)
+# 'painstatus' and 'brainpart' terms are significant 
+```
+```{r}
+pv <-
+  c(
+    0.022640,
+    0.520017,
+    0.001794,
+    1.168e-06,
+    0.0233986,
+    0.0001535,
+    0.2179,
+    0.9711,
+    0.9095,
+    0.255749,
+    0.004206,
+    0.107598,
+    0.7162,
+    0.6500,
+    0.0118,
+    0.0009767,
+    0.0302197,
+    0.1592822
+  )
+p.adjust(pv, "fdr")
+# In 'mv_F_less26_lm', 'mv_F_26to40_lm', 'mv_M_less26_lm', 'mv_M_26to40' and 'mv_M_more40_lm', the terms are still significant
+```
+
+## Second phase of the follow-up analysis
+
+### Females less than 26
+
+```{r}
+mv_F_less26_part1_lm <-
+  lm(diff.volume ~ painstatus, data = table_F_less26 %>% filter(brainpart == "CG"))
+anova(mv_F_less26_part1_lm)
+```
+```{r}
+mv_F_less26_part2_lm <-
+  lm(diff.volume ~ painstatus, data = table_F_less26 %>% filter(brainpart == "OL"))
+anova(mv_F_less26_part2_lm)
+```
+```{r}
+mv_F_less26_part3_lm <-
+  lm(diff.volume ~ painstatus, data = table_F_less26 %>% filter(brainpart == "I"))
+anova(mv_F_less26_part3_lm)
+```
+```{r}
+mv_F_less26_part4_lm <-
+  lm(diff.volume ~ painstatus, data = table_F_less26 %>% filter(brainpart == "FL (OC)"))
+anova(mv_F_less26_part4_lm)
+```
+```{r}
+mv_F_less26_part5_lm <-
+  lm(diff.volume ~ painstatus, data = table_F_less26 %>% filter(brainpart == "TL (P)"))
+anova(mv_F_less26_part5_lm)
+# 'painstatus' term is significant
+confint(mv_F_less26_part5_lm)
+```
+```{r}
+mv_F_less26_part6_lm <-
+  lm(diff.volume ~ painstatus, data = table_F_less26 %>% filter(brainpart == "FL (BA)"))
+anova(mv_F_less26_part6_lm)
+```
+```{r}
+mv_F_less26_part7_lm <-
+  lm(diff.volume ~ painstatus, data = table_F_less26 %>% filter(brainpart == "CS"))
+anova(mv_F_less26_part7_lm)
+# 'painstatus' term is significant
+summary(mv_F_less26_part7_lm)
+confint(mv_F_less26_part7_lm)
+```
+```{r}
+mv_F_less26_part8_lm <-
+  lm(diff.volume ~ painstatus,
+     data = table_F_less26 %>% filter(brainpart == "FL (DPC)"))
+anova(mv_F_less26_part8_lm)
+```
+```{r}
+mv_F_less26_part9_lm <-
+  lm(diff.volume ~ painstatus, data = table_F_less26 %>% filter(brainpart == "TL (ST)"))
+anova(mv_F_less26_part9_lm)
+```
+```{r}
+pv_F_less26 <-
+  c(0.3973,
+    0.6671,
+    0.3528,
+    0.7657,
+    0.03159,
+    0.2218,
+    0.0006312,
+    0.8012,
+    0.8645)
+p.adjust(pv_F_less26, "fdr")
+# In 'mv_F_less26_part7_lm', the term is still significant 
+```
+
+### Females from 26 to 40
+
+```{r}
+mv_F_26to40_part1_lm <-
+  lm(diff.volume ~ painstatus, data = table_F_26to40 %>% filter(brainpart == "CG"))
+anova(mv_F_26to40_part1_lm)
+```
+```{r}
+mv_F_26to40_part2 <-
+  lmer(
+    diff.volume ~ painstatus + (1 | subject_code),
+    data = table_F_26to40 %>% filter(brainpart == "OL"),
+    REML = FALSE
+  )
+performance::icc(mv_F_26to40_part2)
+anova(mv_F_26to40_part2)
+```
+```{r}
+mv_F_26to40_part3 <-
+  lmer(
+    diff.volume ~ painstatus + (1 | subject_code),
+    data = table_F_26to40 %>% filter(brainpart == "I"),
+    REML = FALSE
+  )
+performance::icc(mv_F_26to40_part3)
+anova(mv_F_26to40_part3)
+# 'painstatus' term is significant
+summary(mv_F_26to40_part3)
+confint(mv_F_26to40_part3)
+```
+```{r}
+mv_F_26to40_part4 <-
+  lmer(
+    diff.volume ~ painstatus + (1 | subject_code),
+    data = table_F_26to40 %>% filter(brainpart == "FL (OC)"),
+    REML = FALSE
+  )
+performance::icc(mv_F_26to40_part4)
+anova(mv_F_26to40_part4)
+```
+```{r}
+mv_F_26to40_part5_lm <-
+  lm(diff.volume ~ painstatus, data = table_F_26to40 %>% filter(brainpart == "TL (P)"))
+anova(mv_F_26to40_part5_lm)
+```
+```{r}
+mv_F_26to40_part6_lm <-
+  lm(diff.volume ~ painstatus, data = table_F_26to40 %>% filter(brainpart == "FL (BA)"))
+anova(mv_F_26to40_part6_lm)
+```
+```{r}
+mv_F_26to40_part7_lm <-
+  lm(diff.volume ~ painstatus, data = table_F_26to40 %>% filter(brainpart == "CS"))
+anova(mv_F_26to40_part7_lm)
+# 'painstatus' term is significant
+summary(mv_F_26to40_part7_lm)
+confint(mv_F_26to40_part7_lm)
+```
+```{r}
+mv_F_26to40_part8_lm <-
+  lm(diff.volume ~ painstatus,
+     data = table_F_26to40 %>% filter(brainpart == "FL (DPC)"))
+anova(mv_F_26to40_part8_lm)
+```
+```{r}
+mv_F_26to40_part9_lm <-
+  lm(diff.volume ~ painstatus, data = table_F_26to40 %>% filter(brainpart == "TL (ST)"))
+anova(mv_F_26to40_part9_lm)
+```
+```{r}
+pv_F_26to40 <-
+  c(0.09228,
+    0.9195,
+    0.0005431,
+    0.5985,
+    0.292,
+    0.2338,
+    2.073e-05,
+    0.1183,
+    0.4573)
+p.adjust(pv_F_26to40, "fdr")
+# In 'mv_F_26to40_part3_lm' and 'mv_F_26to40_part7_lm', the terms are still significant 
+```
+
+### Males less than 26
+
+```{r}
+mv_M_less26_part1 <-
+  lmer(
+    diff.volume ~ painstatus + (1 | subject_code),
+    data = table_M_less26 %>% filter(brainpart == "CG"),
+    REML = FALSE
+  )
+performance::icc(mv_M_less26_part1)
+anova(mv_M_less26_part1)
+```
+```{r}
+mv_M_less26_part2 <-
+  lmer(
+    diff.volume ~ painstatus + (1 | subject_code),
+    data = table_M_less26 %>% filter(brainpart == "OL"),
+    REML = FALSE
+  )
+performance::icc(mv_M_less26_part2)
+anova(mv_M_less26_part2)
+```
+```{r}
+mv_M_less26_part3 <-
+  lmer(
+    diff.volume ~ painstatus + (1 | subject_code),
+    data = table_M_less26 %>% filter(brainpart == "I"),
+    REML = FALSE
+  )
+performance::icc(mv_M_less26_part3)
+anova(mv_M_less26_part3)
+```
+```{r}
+mv_M_less26_part4 <-
+  lmer(
+    diff.volume ~ painstatus + (1 | subject_code),
+    data = table_M_less26 %>% filter(brainpart == "FL (OC)"),
+    REML = FALSE
+  )
+performance::icc(mv_M_less26_part4)
+anova(mv_M_less26_part4)
+```
+```{r}
+mv_M_less26_part5 <-
+  lmer(
+    diff.volume ~ painstatus + (1 | subject_code),
+    data = table_M_less26 %>% filter(brainpart == "TL (P)"),
+    REML = FALSE
+  )
+performance::icc(mv_M_less26_part5)
+anova(mv_M_less26_part5)
+```
+```{r}
+mv_M_less26_part6 <-
+  lmer(
+    diff.volume ~ painstatus + (1 | subject_code),
+    data = table_M_less26 %>% filter(brainpart == "FL (BA)"),
+    REML = FALSE
+  )
+performance::icc(mv_M_less26_part6)
+anova(mv_M_less26_part6)
+```
+```{r}
+mv_M_less26_part7 <-
+  lmer(
+    diff.volume ~ painstatus + (1 | subject_code),
+    data = table_M_less26 %>% filter(brainpart == "CS"),
+    REML = FALSE
+  )
+performance::icc(mv_M_less26_part7)
+anova(mv_M_less26_part7)
+```
+```{r}
+mv_M_less26_part8 <-
+  lmer(
+    diff.volume ~ painstatus + (1 | subject_code),
+    data = table_M_less26 %>% filter(brainpart == "FL (DPC)"),
+    REML = FALSE
+  )
+performance::icc(mv_M_less26_part8)
+anova(mv_M_less26_part8)
+```
+```{r}
+mv_M_less26_part9_lm <-
+  lm(diff.volume ~ painstatus, data = table_M_less26 %>% filter(brainpart == "TL (ST)"))
+anova(mv_M_less26_part9_lm)
+```
+```{r}
+pv_M_less26 <-
+  c(0.6499,
+    0.5737,
+    0.476,
+    0.3117,
+    0.8891,
+    0.9078,
+    0.1267,
+    0.4559,
+    0.4646)
+p.adjust(pv_M_less26, "fdr")
+```
+
+### Males from 26 to 40
+
+```{r}
+mv_M_26to40_part1 <-
+  lmer(
+    diff.volume ~ painstatus + (1 | subject_code),
+    data = table_M_26to40 %>% filter(brainpart == "CG"),
+    REML = FALSE
+  )
+performance::icc(mv_M_26to40_part1)
+anova(mv_M_26to40_part1)
+```
+```{r}
+mv_M_26to40_part2 <-
+  lmer(
+    diff.volume ~ painstatus + (1 | subject_code),
+    data = table_M_26to40 %>% filter(brainpart == "OL"),
+    REML = FALSE
+  )
+performance::icc(mv_M_26to40_part2)
+anova(mv_M_26to40_part2)
+```
+```{r}
+mv_M_26to40_part3 <-
+  lmer(
+    diff.volume ~ painstatus + (1 | subject_code),
+    data = table_M_26to40 %>% filter(brainpart == "I"),
+    REML = FALSE
+  )
+performance::icc(mv_M_26to40_part3)
+anova(mv_M_26to40_part3)
+```
+```{r}
+mv_M_26to40_part4 <-
+  lmer(
+    diff.volume ~ painstatus + (1 | subject_code),
+    data = table_M_26to40 %>% filter(brainpart == "FL (OC)"),
+    REML = FALSE
+  )
+performance::icc(mv_M_26to40_part4)
+anova(mv_M_26to40_part4)
+```
+```{r}
+mv_M_26to40_part5 <-
+  lmer(
+    diff.volume ~ painstatus + (1 | subject_code),
+    data = table_M_26to40 %>% filter(brainpart == "TL (P)"),
+    REML = FALSE
+  )
+performance::icc(mv_M_26to40_part5)
+anova(mv_M_26to40_part5)
+```
+```{r}
+mv_M_26to40_part6 <-
+  lmer(
+    diff.volume ~ painstatus + (1 | subject_code),
+    data = table_M_26to40 %>% filter(brainpart == "FL (BA)"),
+    REML = FALSE
+  )
+performance::icc(mv_M_26to40_part6)
+anova(mv_M_26to40_part6)
+```
+```{r}
+mv_M_26to40_part7 <-
+  lmer(
+    diff.volume ~ painstatus + (1 | subject_code),
+    data = table_M_26to40 %>% filter(brainpart == "CS"),
+    REML = FALSE
+  )
+performance::icc(mv_M_26to40_part7)
+anova(mv_M_26to40_part7)
+```
+```{r}
+mv_M_26to40_part8 <-
+  lmer(
+    diff.volume ~ painstatus + (1 | subject_code),
+    data = table_M_26to40 %>% filter(brainpart == "FL (DPC)"),
+    REML = FALSE
+  )
+performance::icc(mv_M_26to40_part8)
+anova(mv_M_26to40_part8)
+```
+```{r}
+mv_M_26to40_part9 <-
+  lmer(
+    diff.volume ~ painstatus + (1 | subject_code),
+    data = table_M_26to40 %>% filter(brainpart == "TL (ST)"),
+    REML = FALSE
+  )
+performance::icc(mv_M_26to40_part9)
+anova(mv_M_26to40_part9)
+```
+```{r}
+pv_M_26to40 <-
+  c(0.8861,
+    0.8335,
+    0.2742,
+    0.2817,
+    0.9201,
+    0.5431,
+    0.3984,
+    0.9388,
+    0.4246)
+p.adjust(pv_M_26to40, "fdr")
+# No significant value
+```
+
+### Males more than 40
+
+```{r}
+mv_M_more40_part1 <-
+  lmer(
+    diff.volume ~ painstatus + (1 | subject_code),
+    data = table_M_more40 %>% filter(brainpart == "CG"),
+    REML = FALSE
+  )
+performance::icc(mv_M_26to40_part1)
+anova(mv_M_26to40_part1)
+```
+```{r}
+mv_M_more40_part2 <-
+  lmer(
+    diff.volume ~ painstatus + (1 | subject_code),
+    data = table_M_more40 %>% filter(brainpart == "OL"),
+    REML = FALSE
+  )
+performance::icc(mv_M_26to40_part2)
+anova(mv_M_26to40_part2)
+```
+```{r}
+mv_M_more40_part3 <-
+  lmer(
+    diff.volume ~ painstatus + (1 | subject_code),
+    data = table_M_more40 %>% filter(brainpart == "I"),
+    REML = FALSE
+  )
+performance::icc(mv_M_26to40_part3)
+anova(mv_M_26to40_part3)
+```
+```{r}
+mv_M_more40_part4 <-
+  lmer(
+    diff.volume ~ painstatus + (1 | subject_code),
+    data = table_M_more40 %>% filter(brainpart == "FL (OC)"),
+    REML = FALSE
+  )
+performance::icc(mv_M_26to40_part4)
+anova(mv_M_26to40_part4)
+```
+```{r}
+mv_M_more40_part5 <-
+  lmer(
+    diff.volume ~ painstatus + (1 | subject_code),
+    data = table_M_more40 %>% filter(brainpart == "TL (P)"),
+    REML = FALSE
+  )
+performance::icc(mv_M_26to40_part5)
+anova(mv_M_26to40_part5)
+```
+```{r}
+mv_M_more40_part6 <-
+  lmer(
+    diff.volume ~ painstatus + (1 | subject_code),
+    data = table_M_more40 %>% filter(brainpart == "FL (BA)"),
+    REML = FALSE
+  )
+performance::icc(mv_M_26to40_part6)
+anova(mv_M_26to40_part6)
+```
+```{r}
+mv_M_more40_part7 <-
+  lmer(
+    diff.volume ~ painstatus + (1 | subject_code),
+    data = table_M_more40 %>% filter(brainpart == "CS"),
+    REML = FALSE
+  )
+performance::icc(mv_M_26to40_part7)
+anova(mv_M_26to40_part7)
+```
+```{r}
+mv_M_more40_part8 <-
+  lmer(
+    diff.volume ~ painstatus + (1 | subject_code),
+    data = table_M_more40 %>% filter(brainpart == "FL (DPC)"),
+    REML = FALSE
+  )
+performance::icc(mv_M_26to40_part8)
+anova(mv_M_26to40_part8)
+```
+```{r}
+mv_M_more40_part9 <-
+  lmer(
+    diff.volume ~ painstatus + (1 | subject_code),
+    data = table_M_more40 %>% filter(brainpart == "TL (ST)"),
+    REML = FALSE
+  )
+performance::icc(mv_M_26to40_part9)
+anova(mv_M_26to40_part9)
+```
+```{r}
+pv_M_more40 <-
+  c(0.8861,
+    0.8335,
+    0.2742,
+    0.2817,
+    0.9201,
+    0.5431,
+    0.3984,
+    0.9388,
+    0.4246)
+p.adjust(pv_M_more40, "fdr")
+# No significant value
+```
+
+# Explore the significant differences
+
+```{r change_converge, fig.cap="Line graphs showing the changes in brain volume from baseline to 6-month measurements."}
+table_F_less26_pain_CS_base <-
+  merged_table %>% filter(
+    gender == "Female" &
+      agegroup == "Less than 26" &
+      painstatus == "Pain" &
+      brainpart == "CS" &
+      timepoint == "Baseline"
+  )
+table_F_less26_pain_CS_6month <-
+  merged_table %>% filter(
+    gender == "Female" &
+      agegroup == "Less than 26" &
+      painstatus == "Pain" &
+      brainpart == "CS" &
+      timepoint == "6-Month"
+  )
+table_F_less26_nonpain_CS_base <-
+  merged_table %>% filter(
+    gender == "Female" &
+      agegroup == "Less than 26" &
+      painstatus == "Non-Pain" &
+      brainpart == "CS" &
+      timepoint == "Baseline"
+  )
+table_F_less26_nonpain_CS_6month <-
+  merged_table %>% filter(
+    gender == "Female" &
+      agegroup == "Less than 26" &
+      painstatus == "Non-Pain" &
+      brainpart == "CS" &
+      timepoint == "6-Month"
+  )
+table_F_26to40_pain_CS_base <-
+  merged_table %>% filter(
+    gender == "Female" &
+      agegroup == "26 to 40" &
+      painstatus == "Pain" &
+      brainpart == "CS" &
+      timepoint == "Baseline"
+  )
+table_F_26to40_pain_CS_6month <-
+  merged_table %>% filter(
+    gender == "Female" &
+      agegroup == "26 to 40" &
+      painstatus == "Pain" &
+      brainpart == "CS" &
+      timepoint == "6-Month"
+  )
+table_F_26to40_nonpain_CS_base <-
+  merged_table %>% filter(
+    gender == "Female" &
+      agegroup == "26 to 40" &
+      painstatus == "Non-Pain" &
+      brainpart == "CS" &
+      timepoint == "Baseline"
+  )
+table_F_26to40_nonpain_CS_6month <-
+  merged_table %>% filter(
+    gender == "Female" &
+      agegroup == "26 to 40" &
+      painstatus == "Non-Pain" &
+      brainpart == "CS" &
+      timepoint == "6-Month"
+  )
+table_F_26to40_pain_I_base <-
+  merged_table %>% filter(
+    gender == "Female" &
+      agegroup == "26 to 40" &
+      painstatus == "Pain" &
+      brainpart == "I" &
+      timepoint == "Baseline"
+  )
+table_F_26to40_pain_I_6month <-
+  merged_table %>% filter(
+    gender == "Female" &
+      agegroup == "26 to 40" &
+      painstatus == "Pain" &
+      brainpart == "I" &
+      timepoint == "6-Month"
+  )
+table_F_26to40_nonpain_I_base <-
+  merged_table %>% filter(
+    gender == "Female" &
+      agegroup == "26 to 40" &
+      painstatus == "Non-Pain" &
+      brainpart == "I" &
+      timepoint == "Baseline"
+  )
+table_F_26to40_nonpain_I_6month <-
+  merged_table %>% filter(
+    gender == "Female" &
+      agegroup == "26 to 40" &
+      painstatus == "Non-Pain" &
+      brainpart == "I" &
+      timepoint == "6-Month"
+  )
+
+mean_F_less26_pain_CS_base  <-
+  mean(table_F_less26_pain_CS_base$value.volume)
+mean_F_less26_pain_CS_6month  <-
+  mean(table_F_less26_pain_CS_6month$value.volume)
+mean_F_less26_nonpain_CS_base  <-
+  mean(table_F_less26_nonpain_CS_base$value.volume)
+mean_F_less26_nonpain_CS_6month  <-
+  mean(table_F_less26_nonpain_CS_6month$value.volume)
+mean_F_26to40_pain_CS_base  <-
+  mean(table_F_26to40_pain_CS_base$value.volume)
+mean_F_26to40_pain_CS_6month  <-
+  mean(table_F_26to40_pain_CS_6month$value.volume)
+mean_F_26to40_nonpain_CS_base  <-
+  mean(table_F_26to40_nonpain_CS_base$value.volume)
+mean_F_26to40_nonpain_CS_6month  <-
+  mean(table_F_26to40_nonpain_CS_6month$value.volume)
+mean_F_26to40_pain_I_base  <-
+  mean(table_F_26to40_pain_I_base$value.volume)
+mean_F_26to40_pain_I_6month  <-
+  mean(table_F_26to40_pain_I_6month$value.volume)
+mean_F_26to40_nonpain_I_base  <-
+  mean(table_F_26to40_nonpain_I_base$value.volume)
+mean_F_26to40_nonpain_I_6month  <-
+  mean(table_F_26to40_nonpain_I_6month$value.volume)
+
+change_converge_table <- data.frame(
+  x_start = rep(0, 6),
+  x_end = rep(1, 6),
+  y_start = c(
+    mean_F_less26_pain_CS_base,
+    mean_F_less26_nonpain_CS_base,
+    mean_F_26to40_pain_CS_base,
+    mean_F_26to40_nonpain_CS_base,
+    mean_F_26to40_pain_I_base,
+    mean_F_26to40_nonpain_I_base
+  ),
+  y_end = c(
+    mean_F_less26_pain_CS_6month,
+    mean_F_less26_nonpain_CS_6month,
+    mean_F_26to40_pain_CS_6month,
+    mean_F_26to40_nonpain_CS_6month,
+    mean_F_26to40_pain_I_6month,
+    mean_F_26to40_nonpain_I_6month
+  ),
+  painstatus = c("Pain", "Non-Pain", "Pain", "Non-Pain", "Pain", "Non-Pain"),
+  note = c(
+    "CS in Females Less Than 26",
+    "CS in Females Less Than 26",
+    "CS in Females Aged 26 to 40",
+    "CS in Females Aged 26 to 40",
+    "I in Females Aged 26 to 40",
+    "I in Females Aged 26 to 40"
+  ),
+  stringsAsFactors = FALSE
+)
+change_converge_table$note <- factor(change_converge_table$note, levels = c("CS in Females Less Than 26", "CS in Females Aged 26 to 40", "I in Females Aged 26 to 40"))
+
+change_converge <-
+  ggplot(
+    change_converge_table,
+    aes(
+      x = x_start,
+      y = y_start,
+      color = painstatus,
+      group = painstatus
+    )
+  ) +
+  facet_wrap(~ note, scales = "free") +
+  geom_point() +
+  geom_point(aes(x = x_end, y = y_end)) +
+  geom_segment(aes(
+    x = x_start,
+    xend = x_end,
+    y = y_start,
+    yend = y_end
+  ), size = 1.5) +
+  labs(x = "Time Point", y = "Volume", color = "Pain Status") +
+  scale_x_continuous(breaks = c(0, 1),
+                     labels = c("Baseline", "6-Month")) +
+  theme_classic() +
+  scale_color_manual(values = custom_colors) +
+  theme(
+    legend.position = "bottom",
+    axis.text.x = element_text(angle = 30, hjust = 1)
+  )
+
+change_converge
+```
+
+# Diagnostic plots
+
+```{r t_full_linear, fig.cap="Residual plot of the four-way interaction model. From the plot, except for the dots in the predicted value less than -0.1 section being slightly concentrated below the horizontal dashed line, most of the other dots are symmetrically distributed, tending to cluster towards the middle of the plot, around the lower single digits of the y-axis, and there are not any clear patterns."}
+t_full_linear <- plot(check_model(m_t_freq))[[2]] +
+  theme_classic()
+
+t_full_linear
+```
+```{r t_full_normal, fig.cap="Q-Q plot of the four-way interaction model. The Q-Q plot exhibits some heavy tails. Aside from these tails, most of the other dots closely follow the reference line."}
+t_full_normal <- plot(check_model(m_t_freq))[[6]] +
+  theme_classic()
+
+t_full_normal
+```
+```{r t_small_linear, fig.cap="Residual plot of the follow-up analysis model. From the plot, all dots are symmetrically distributed across the plot, without any clear patterns."}
+t_small_linear <- plot(check_model(mt_F_less26_lm))[[2]] +
+  theme_classic()
+
+t_small_linear
+```
+```{r t_small_normal, fig.cap="Q-Q plot of the follow-up analysis model. The Q-Q plot displays a distribution where most dots are closely falling along the reference line."}
+t_small_normal <- plot(check_model(mt_F_less26_lm))[[6]] +
+  theme_classic()
+
+t_small_normal
+```
+```{r v_full_linear, fig.cap="Residual plot of the four-way interaction model. From the plot, apart from the dots with predicted values less than -0.1, which are slightly concentrated below the horizontal line, and an outlier in the top-right corner of the plot, most of the other dots are symmetrically distributed. They tend to cluster towards the middle of the plot, around the lower single digits of the y-axis, and there are not any clear patterns."}
+v_full_linear <- plot(check_model(m_v_freq))[[2]] +
+  theme_classic()
+
+v_full_linear
+```
+```{r v_full_normal, fig.cap="Q-Q plot of the four-way interaction model. The Q-Q plot exhibits some heavy tails and an outlier. Apart from these dots, most of the other dots closely follow the reference line."}
+v_full_normal <- plot(check_model(m_v_freq))[[6]] +
+  theme_classic()
+
+v_full_normal
+```
+```{r v_small_linear, fig.cap="Residual plot of the follow-up analysis model. From the plot, some dots appear to be concentrated on the left side. However, the reference line is horizontal and there are no clear patterns overall."}
+v_small_linear <- plot(check_model(mv_F_less26_lm))[[2]] +
+  theme_classic()
+
+v_small_linear
+```
+```{r v_small_normal, fig.cap="Q-Q plot of the follow-up analysis model. The Q-Q plot exhibits heavy tails, but the situation is improved from that shown in Figure \ref{v_full_normal}. Apart from the heavy tails, the remaining dots are closely falling along the reference line."}
+v_small_normal <- plot(check_model(mv_F_less26_lm))[[6]] +
+  theme_classic()
+
+v_small_normal
+```
